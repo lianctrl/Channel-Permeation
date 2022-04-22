@@ -10,17 +10,20 @@ parser = argparse.ArgumentParser(description="Analysis \
         of ions permeation through channels")
 
 parser.add_argument("-s", "--structure", dest="pdb", \
-        required=True, help="structure file (e.g. .pdb,.psf or .gro)")
+        required=True, help="<Required> structure file (e.g. .pdb,.psf or .gro)")
 
 parser.add_argument("-t", "--traj", dest = "traj", \
-        required = True, help ="trajectory files, also an array can be passed")
+        action='append', required = True, help ="<Required> traj files\
+        , an array can be passed through many invocation of -t")
 
 parser.add_argument("-sel", "--selection", dest = "sel",\
-        required = True, help ="ions selection for which the analysis must be done (e.g. resname NA)")
+        required = True, help ="<Required> ions selection for which \
+        the analysis must be done (e.g. resname NA)")
 
 parser.add_argument("-ref", "--reference", dest = "ref", \
-        required = True, help ="From this selection will be guessed the first \
-        and last atoms of the reference channel (e.g. protein and backbone)")
+        required = True, help ="<Required> From this selection will \
+        be guessed the first and last atoms of the reference \
+        channel (e.g. protein and backbone)")
 
 parser.add_argument("-st", "--starttime", dest = "starttime",\
         type=float, default=0, help = "time starting (ns), default = 0")
