@@ -51,10 +51,10 @@ parser.add_argument("-ref", "--reference", dest = "ref", \
         be guessed the first and last atoms of the reference \
         channel (e.g. protein and backbone)")
 
-parser.add_argument("-st", "--starttime", dest = "starttime",\
+parser.add_argument("-st", "--starttime", dest = "startt",\
         type=float, default=0, help = "time starting (ns), default = 0")
 
-parser.add_argument("-st", "--endtime", dest = "endtime", \
+parser.add_argument("-et", "--endtime", dest = "endt", \
         type=float, default=-1, help = "time ending (ns), default = last frame")
 
 parser.add_argument("-j", "--stride", dest = "stride", \
@@ -94,7 +94,10 @@ lim_lw = [ref_atoms.center_of_mass()[0],\
 # https://stackoverflow.com/questions/47932955/how-to-check-if-a-3d-point-is-inside-a-cylinder
 q  = np.zeros(3)
 p1 = np.array(lim_lw)
-p2 = np.zeros(lim_up)
+p2 = np.array(lim_up)
+
+#radius of the CNT measured prev through MDAnalysis
+r = 5.00 
 
 #define difference between vectors of the two centers (N.B possible only if these two are numpy arrays)
 vec = p2 - p1
@@ -106,9 +109,6 @@ labelist = []
 x=[]
 y=[]
 z=[]
-
-#radius of the CNT measured prev through MDAnalysis
-r = 4.745
 
 # labeling every position of the NA
 # +1 above the channel
@@ -124,13 +124,13 @@ old_step = 2
 
 
 for n in range (len(sel_atoms)):
-    for frm in u.trajectory[:]:
+    for frm in u.trajectory[args.startt:args.endt:args.stride]:
 
-        z_sel = NA_atoms.positions[n,2]
+        z_sel = sel_atoms.positions[n,2]
 
-        y_sel = NA_atoms.positions[n,1]
+        y_sel = sel_atoms.positions[n,1]
 
-        x_sel = NA_atoms.positions[n,0]
+        x_sel = sel_atoms.positions[n,0]
 
         q = np.array([x_sel,y_sel,z_sel])
 
@@ -147,7 +147,7 @@ for n in range (len(sel_atoms)):
            y.append(y_sel)
            z.append(z_sel)
 
-       elif ( np.dot(q - p1, vec) <= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != -1):
+        elif ( np.dot(q - p1, vec) <= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != -1):
 
            labelist.append(-1)
            old_step = -1
@@ -197,5 +197,5 @@ for i in range (2,len(labelist)):
 
         pass_count+=1
 
-print (f'\n The {arg.sel} ions have passed through the \
-        {arg.ref} {pass_count} times')
+print (f'\n The {args.sel} ions have passed through the \
+        {args.ref} {pass_count} times')
