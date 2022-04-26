@@ -4,6 +4,32 @@ import numpy as np
 import MDAnalysis as mda
 import argparse
 
+def binner(coords,tobinarray,bins=100):
+
+    if isinstance(bins, Iterable):
+        bins = np.asarray(bins)
+        bins = bins[np.argsort(bins)]
+    else:
+        range = (coords.min(), coords.max())
+        xmin, xmax = range
+        if xmin == xmax:
+            xmin -= 0.5
+            xmax += 0.5
+        bins = np.linspace(xmin, xmax, bins+1, endpoint=True)
+
+    idx = np.argsort(coords)
+    coords = coords[idx]
+    var = tobinarray[idx]
+    # left: inserts at i where coords[:i] < edge
+    # right: inserts at i where coords[:i] <= edge
+    # r_ concatenates
+
+    bin_idx = np.r_[coords.searchsorted(bins, side='right')]
+    binned = [var[i:j] for i, j in zip(bin_idx[:-1], bin_idx[1:])]
+
+    return binned, bins
+
+
 #error if less than 4 arguments are passed
 
 parser = argparse.ArgumentParser(description="Analysis \
@@ -48,120 +74,128 @@ sel_atoms = u.select_atoms(args.sel)
 
 ref_atoms  = u.select_atoms(args.ref)
 
-border_atoms_up = C_atoms[:14]
+# insert here a RMSD fit of the traj on the structure,
+# it should solve the alignment problem!!
 
-border_atoms_lw = C_atoms[-14:]
+z_up=np.amax(ref_atoms.positions[:,2])
+z_lw=np.amin(ref_atoms.positions[:,2])
 
-box_up = 90.0
+# this is an huuuuge guess, I understand
+# the generalization issue but you have
+# to be smarter!!
 
-box_lw = 0.0
+lim_up = [ref_atoms.center_of_mass()[0],\
+        ref_atoms.center_of_mass()[1],z_up]
+lim_lw = [ref_atoms.center_of_mass()[0],\
+        ref_atoms.center_of_mass()[1],z_lw]
 
-# arrays to contain x,y,z coordinates of the center top and bottom of the CNT
-
-center_cnt_up = np.zeros(3)
-center_cnt_lw = np.zeros(3)
 
 #vector used down below in order to follow the numerical approach of
 # https://stackoverflow.com/questions/47932955/how-to-check-if-a-3d-point-is-inside-a-cylinder
 q  = np.zeros(3)
-p1 = np.zeros(3)
-p2 = np.zeros(3)
+p1 = np.array(lim_lw)
+p2 = np.zeros(lim_up)
+
+#define difference between vectors of the two centers (N.B possible only if these two are numpy arrays)
+vec = p2 - p1
+#follow the link above
+const = r * np.linalg.norm(vec)
 
 # declare an empty list to store the labels
 labelist = []
+x=[]
+y=[]
+z=[]
 
 #radius of the CNT measured prev through MDAnalysis
 r = 4.745
 
 # labeling every position of the NA
-# +1 above the CNT
-# 0 inside the CNT
-# -1 below the CNT
+# +1 above the channel
+# 0 inside the channel
+# -1 below the channel
 # since it starts from outside the CNT the first label should be 1
 # btw initialized out of range so it can append immediately the first value
 
 old_step = 2
 
-#variable counting the passages of NA ions through channel
-
-pass_count = 0
-
-for n in range (0,len(NA_atoms)):
-
-	#counter variable, should start from 0 but 1 is to have match with the vmd reading trajectory
-#	i = 1
-
-	for frm in u.trajectory[:]:
-
-    		#find the center (baricenter definition) of the upper part of CNT
-		center_cnt_up[2] = sum(border_Catoms_up.positions[:,2])/len(border_Catoms_up.positions[:,2])
-        
-		center_cnt_up[1] = sum(border_Catoms_up.positions[:,1])/len(border_Catoms_up.positions[:,1])
-
-		center_cnt_up[0] = sum(border_Catoms_up.positions[:,0])/len(border_Catoms_up.positions[:,0])
+# here we assume the traj centered (user selection frozen)
+# again above do the RMSD fit!!
 
 
-    		#find the center (baricenter definition) of the lower part of CNT
-		center_cnt_lw[2] = sum(border_Catoms_lw.positions[:,2])/len(border_Catoms_lw.positions[:,2])
+for n in range (len(sel_atoms)):
+    for frm in u.trajectory[:]:
 
-		center_cnt_lw[1] = sum(border_Catoms_lw.positions[:,1])/len(border_Catoms_lw.positions[:,1])
+        z_sel = NA_atoms.positions[n,2]
 
-		center_cnt_lw[0] = sum(border_Catoms_lw.positions[:,0])/len(border_Catoms_lw.positions[:,0])
+        y_sel = NA_atoms.positions[n,1]
 
-    		#set the x,y,z coordinate for the NAR ion
-		
-		z_coordinate_NA = NA_atoms.positions[n,2]
+        x_sel = NA_atoms.positions[n,0]
 
-		y_coordinate_NA = NA_atoms.positions[n,1]
+        q = np.array([x_sel,y_sel,z_sel])
 
-		x_coordinate_NA = NA_atoms.positions[n,0]
+        if ( np.dot(q - p1, vec) >= 0 and np.dot(q - p2, vec) >= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != 1):
 
-		p1 = np.array([center_cnt_lw[0],center_cnt_lw[1],center_cnt_lw[2]])
+            labelist.append(1)
+            old_step = 1
 
-		p2 = np.array([center_cnt_up[0],center_cnt_up[1],center_cnt_up[2]])
-    
-		#define difference between vectors of the two centers (N.B possible only if these two are numpy arrays)
-		vec = p2 - p1
-		#follow the link above
-		const = r * np.linalg.norm(vec)
+        elif ( np.dot(q - p1, vec) >= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != 0):
 
-		q = np.array([x_coordinate_NA,y_coordinate_NA,z_coordinate_NA])
+           labelist.append(0)
+           old_step = 0
+           x.append(x_sel)
+           y.append(y_sel)
+           z.append(z_sel)
 
-		if ( np.dot(q - p1, vec) >= 0 and np.dot(q - p2, vec) >= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != 1):
+       elif ( np.dot(q - p1, vec) <= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != -1):
 
-			labelist.append(1)
-		
-			old_step = 1
-
-		if ( np.dot(q - p1, vec) >= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != 0):
-
-			labelist.append(0)
-		
-			old_step = 0
-
-
-		if ( np.dot(q - p1, vec) <= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != -1):
-
-			labelist.append(-1)
-		
-			old_step = -1
+           labelist.append(-1)
+           old_step = -1
 
 
 # append an out of range value to separate different atoms passages
 
-	labelist.append(2)
+    labelist.append(2)
 
 
-labelarray = np.array(labelist)
+labelist = np.array(labelist)
+x=np.array(x)
+y=np.array(y)
+z=np.array(z)
 
-# loop to verify if the passage happened through the check of the position ordered string 1,0,-1
-# for up to down permeation events (our case)
+delta=2
+centers=np.arange(z.min(),z.max()+delta,delta)
+binx=binner(z,x,centers)
+biny=binner(z,y,centers)
+binz=binner(z,z,centers)
 
-for i in range (0,len(labelist)-3):
-	
-	if ( labelarray[i]==1 and labelarray[i+1]==0 and labelarray[i+2]==-1):
-		
-		pass_count+=1
+c1=list(map(np.mean,binx))
+c2=list(map(np.mean,biny))
+c3=list(map(np.mean,binz))
 
-print ('\n The NA ions have passed through the CNT %i times\n' % ( pass_count ))
+c4=list(map(np.std,binx))
+c5=list(map(np.std,biny))
+c6=list(map(np.std,binz))
 
+np.savetxt('ions-trajectory.dat',np.c_[c1,c2,c3,c4,c5,c6])
+
+# loop to verify if the passage happened through
+# the position ordered string 1,0,-1
+# for up to down permeation events (is it our case?)
+
+pass_count = 0
+
+if labelist[0]==0 and labelist[1]==-1:
+    pass_count+=1
+
+if labelist[1]==0 and labelist[2]==-1:
+    pass_count+=1
+
+for i in range (2,len(labelist)):
+
+    if ( labelist[i-2]==1 and labelist[i-1]==0 and labelist[i]==-1):
+
+        pass_count+=1
+
+print (f'\n The {arg.sel} ions have passed through the \
+        {arg.ref} {pass_count} times')
