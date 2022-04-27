@@ -4,6 +4,10 @@ import numpy as np
 import MDAnalysis as mda
 import argparse
 from collections.abc import Iterable
+import warnings
+
+warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning) 
+
 
 def binner(coords,tobinarray,bins=100):
 
