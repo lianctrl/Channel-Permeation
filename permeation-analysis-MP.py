@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 
+import argparse
+from time import perf_counter
 import numpy as np
 import MDAnalysis as mda
-import argparse
+import multiprocessing as mp
 from collections.abc import Iterable
+import warnings
+
+warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning) 
+
+
+def split(a, n):
+    k, m = divmod(len(a), n)
+    return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
 
 def binner(coords,tobinarray,bins=100):
 
@@ -30,6 +40,17 @@ def binner(coords,tobinarray,bins=100):
 
     return binned, bins
 
+def count_perm(labelist):
+
+    pass_count = 0
+
+    for i in range (2,len(labelist)):
+
+        if ( labelist[i-2]==1 and labelist[i-1]==0 and labelist[i]==-1):
+
+            pass_count+=1
+
+    return pass_count
 
 #error if less than 4 arguments are passed
 
@@ -67,78 +88,58 @@ parser.add_argument("-j", "--stride", dest = "stride", \
 parser.add_argument("-dx", "--width", dest = "width", \
         type=float, default=0.5, help = "bin width for the channel axis, default = 0.5 (Ang)")
 
-args = parser.parse_args()
-
-sel=args.sel
-ref = args.ref
-
-u = mda.Universe(args.pdb, args.traj)
-
-sel_atoms = u.select_atoms(args.sel)
-
-ref_atoms  = u.select_atoms(args.ref)
-
-print(f'\n The selection provided is of {len(sel_atoms)} ions \
-and the trajectory contains {u.trajectory.n_frames} frames')
-
-# Computed time is about 90 frames/second per ion
-
-time=len(sel_atoms)*u.trajectory.n_frames/90
-
-print(f'\n Estimated time to finish is {time/60} minutes or {time/3600} hours')
-
-# insert here a RMSD fit of the traj on the structure,
-# it should solve the alignment problem!!
-
-z_up=np.amax(ref_atoms.positions[:,2])
-z_lw=np.amin(ref_atoms.positions[:,2])
-
-# this is an huuuuge guess, I understand
-# the generalization issue but you have
-# to be smarter!!
-
-lim_up = [ref_atoms.center_of_mass()[0],\
-        ref_atoms.center_of_mass()[1],z_up]
-lim_lw = [ref_atoms.center_of_mass()[0],\
-        ref_atoms.center_of_mass()[1],z_lw]
-
-
-#vector used down below in order to follow the numerical approach of
-# https://stackoverflow.com/questions/47932955/how-to-check-if-a-3d-point-is-inside-a-cylinder
-q  = np.zeros(3)
-p1 = np.array(lim_lw)
-p2 = np.array(lim_up)
-
-#radius of the CNT measured prev through MDAnalysis
-r = args.radius 
-
-#define difference between vectors of the two centers (N.B possible only if these two are numpy arrays)
-vec = p2 - p1
-#follow the link above
-const = r * np.linalg.norm(vec)
-
-# declare an empty list to store the labels
-labelist = []
-x=[]
-y=[]
-z=[]
-
-# labeling every position of the NA
-# +1 above the channel
-# 0 inside the channel
-# -1 below the channel
-# since it starts from outside the CNT the first label should be 1
-# btw initialized out of range so it can append immediately the first value
-
-old_step = 2
-
-# here we assume the traj centered (user selection frozen)
-# again above do the RMSD fit!!
-
 print('\n Main loop starting, good luck and wait',flush=True)
 
-for n in range (len(sel_atoms)):
+args=parser.parse_args()
+
+u = mda.Universe(args.pdb, args.traj)
+sel_atoms = u.select_atoms(args.sel)
+
+def mp_permeation(n,u,args):
+    
+    sel=args.sel
+    ref = args.ref
+    sel_atoms = u.select_atoms(args.sel)
+    ref_atoms  = u.select_atoms(args.ref)
+
+    # insert here a RMSD fit of the traj on the structure,
+    # it should solve the alignment problem!!
+    
+    z_up=np.amax(ref_atoms.positions[:,2])
+    z_lw=np.amin(ref_atoms.positions[:,2])
+    
+    # this is an huuuuge guess, I understand
+    # the generalization issue but you have
+    # to be smarter!!
+    
+    lim_up = [ref_atoms.center_of_mass()[0],\
+            ref_atoms.center_of_mass()[1],z_up]
+    lim_lw = [ref_atoms.center_of_mass()[0],\
+            ref_atoms.center_of_mass()[1],z_lw]
+    
+    
+    #vector used down below in order to follow the numerical approach of
+    # https://stackoverflow.com/questions/47932955/how-to-check-if-a-3d-point-is-inside-a-cylinder
+    q  = np.zeros(3)
+    p1 = np.array(lim_lw)
+    p2 = np.array(lim_up)
+    
+    #radius of the CNT measured prev through MDAnalysis
+    r = args.radius 
+    
+    #define difference between vectors of the two centers (N.B possible only if these two are numpy arrays)
+    vec = p2 - p1
+    #follow the link above
+    const = r * np.linalg.norm(vec)
+
+    labelist = []
+    xd=[]
+    yd=[]
+    zd=[]
     labelist.append(1)
+
+    old_step = 2
+
     for frm in u.trajectory[args.startt:args.endt:args.stride]:
 
         z_sel = sel_atoms.positions[n,2]
@@ -160,9 +161,9 @@ for n in range (len(sel_atoms)):
 
         elif ( a >= 0 and b <= 0 and c <= const ):
 
-            x.append(x_sel)
-            y.append(y_sel)
-            z.append(z_sel)
+            xd.append(x_sel)
+            yd.append(y_sel)
+            zd.append(z_sel)
 
             if old_step != 0:
                 labelist.append(0)
@@ -173,17 +174,49 @@ for n in range (len(sel_atoms)):
             labelist.append(-1)
             old_step = -1
 
+    labelist = np.array(labelist)
+    counts=count_perm(labelist)
 
-# append an out of range value to separate different atoms passages
+    xd=np.array(xd)
+    yd=np.array(yd)
+    zd=np.array(zd)
 
-    labelist.append(2)
+    return xd,yd,zd,counts
 
+t1 = perf_counter()
 
-labelist = np.array(labelist)
+pool=mp.Pool(mp.cpu_count())
+nproc=mp.cpu_count()
 
-x=np.array(x)
-y=np.array(y)
-z=np.array(z)
+x=[]
+y=[]
+z=[]
+pass_count=0
+
+def collect_result(result):
+    global x
+    global y
+    global z
+    global pass_count
+    x.append(np.asarray(result[0]))
+    y.append(np.asarray(result[1]))
+    z.append(np.asarray(result[2]))
+    pass_count+=result[3]
+
+for n in range(len(sel_atoms)):
+    pool.apply_async(mp_permeation, args=(n,u,args),callback=collect_result)
+    print(f'Computed {n+1}/{len(sel_atoms)} possible combinations',flush=True)
+
+pool.close()
+pool.join()
+
+t2 = perf_counter()
+
+print(f'Finished in {t2-t1} seconds')
+
+x=np.concatenate(x)
+y=np.concatenate(y)
+z=np.concatenate(z)
 
 delta=args.width
 ns=int((z.max()-z.min())/delta)
@@ -201,19 +234,7 @@ c4=np.asarray(list(map(np.std,binx)))
 c5=np.asarray(list(map(np.std,biny)))
 c6=np.asarray(list(map(np.std,binz)))
 
-np.savetxt('ions-trajectory.dat',np.c_[c1,c2,c3,c4,c5,c6])
-
-# loop to verify if the passage happened through
-# the position ordered string -1,0,1
-# for up to down permeation events (is it our case?)
-
-pass_count = 0
-
-for i in range (2,len(labelist)):
-
-    if ( labelist[i-2]==1 and labelist[i-1]==0 and labelist[i]==-1):
-
-        pass_count+=1
+np.savetxt('ions-traj-MP.dat',np.c_[c1,c2,c3,c4,c5,c6])
 
 print (f'\n The {args.sel} ions have passed through the \
-{args.ref} {pass_count} times')
+{args.ref} {np.sum(pass_count)} times')
