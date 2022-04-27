@@ -3,6 +3,7 @@
 import numpy as np
 import MDAnalysis as mda
 import argparse
+from collections.abc import Iterable
 
 def binner(coords,tobinarray,bins=100):
 
@@ -51,6 +52,9 @@ parser.add_argument("-ref", "--reference", dest = "ref", \
         be guessed the first and last atoms of the reference \
         channel (e.g. protein and backbone)")
 
+parser.add_argument("-r", "--radius", dest = "radius", \
+        type=float, default=5.0, help = "estimate of channel radius, default = 5.0 (Ang)")
+
 parser.add_argument("-st", "--starttime", dest = "startt",\
         type=float, default=0, help = "time starting (ns), default = 0")
 
@@ -61,7 +65,7 @@ parser.add_argument("-j", "--stride", dest = "stride", \
         type=int, default=1, help = "stride, default = 1")
 
 parser.add_argument("-dx", "--width", dest = "width", \
-        type=float, default=0.05, help = "bin width for the channel axis, default = 0.05")
+        type=float, default=0.5, help = "bin width for the channel axis, default = 0.5 (Ang)")
 
 args = parser.parse_args()
 
@@ -73,6 +77,15 @@ u = mda.Universe(args.pdb, args.traj)
 sel_atoms = u.select_atoms(args.sel)
 
 ref_atoms  = u.select_atoms(args.ref)
+
+print(f'\n The selection provided is of {len(sel_atoms)} ions \
+and the trajectory contains {u.trajectory.n_frames} frames')
+
+# Computed time is about 90 frames/second per ion
+
+time=len(sel_atoms)*u.trajectory.n_frames/90
+
+print(f'\n Estimated time to finish is {time/60} minutes or {time/3600} hours')
 
 # insert here a RMSD fit of the traj on the structure,
 # it should solve the alignment problem!!
@@ -97,7 +110,7 @@ p1 = np.array(lim_lw)
 p2 = np.array(lim_up)
 
 #radius of the CNT measured prev through MDAnalysis
-r = 5.00 
+r = args.radius 
 
 #define difference between vectors of the two centers (N.B possible only if these two are numpy arrays)
 vec = p2 - p1
@@ -122,8 +135,10 @@ old_step = 2
 # here we assume the traj centered (user selection frozen)
 # again above do the RMSD fit!!
 
+print('\n Main loop starting, good luck and wait',flush=True)
 
 for n in range (len(sel_atoms)):
+    labelist.append(1)
     for frm in u.trajectory[args.startt:args.endt:args.stride]:
 
         z_sel = sel_atoms.positions[n,2]
@@ -134,23 +149,29 @@ for n in range (len(sel_atoms)):
 
         q = np.array([x_sel,y_sel,z_sel])
 
-        if ( np.dot(q - p1, vec) >= 0 and np.dot(q - p2, vec) >= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != 1):
+        a = np.dot(q - p1, vec)
+        b = np.dot(q - p2, vec)
+        c = np.linalg.norm(np.cross(q - p1, vec))
+
+        if ( a >= 0 and b >= 0 and c <= const and old_step != 1):
 
             labelist.append(1)
             old_step = 1
 
-        elif ( np.dot(q - p1, vec) >= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != 0):
+        elif ( a >= 0 and b <= 0 and c <= const ):
 
-           labelist.append(0)
-           old_step = 0
-           x.append(x_sel)
-           y.append(y_sel)
-           z.append(z_sel)
+            x.append(x_sel)
+            y.append(y_sel)
+            z.append(z_sel)
 
-        elif ( np.dot(q - p1, vec) <= 0 and np.dot(q - p2, vec) <= 0 and np.linalg.norm(np.cross(q - p1, vec)) <= const and old_step != -1):
+            if old_step != 0:
+                labelist.append(0)
+                old_step = 0
 
-           labelist.append(-1)
-           old_step = -1
+        elif ( a <= 0 and b <= 0 and c <= const and old_step != -1):
+
+            labelist.append(-1)
+            old_step = -1
 
 
 # append an out of range value to separate different atoms passages
@@ -159,37 +180,34 @@ for n in range (len(sel_atoms)):
 
 
 labelist = np.array(labelist)
+
 x=np.array(x)
 y=np.array(y)
 z=np.array(z)
 
-delta=2
-centers=np.arange(z.min(),z.max()+delta,delta)
-binx=binner(z,x,centers)
-biny=binner(z,y,centers)
-binz=binner(z,z,centers)
+delta=args.width
+ns=int((z.max()-z.min())/delta)
+centers=np.linspace(z.min(),z.max(),ns+1,endpoint=True)
 
-c1=list(map(np.mean,binx))
-c2=list(map(np.mean,biny))
-c3=list(map(np.mean,binz))
+binx,_=binner(z,x,centers)
+biny,_=binner(z,y,centers)
+binz,_=binner(z,z,centers)
 
-c4=list(map(np.std,binx))
-c5=list(map(np.std,biny))
-c6=list(map(np.std,binz))
+c1=np.asarray(list(map(np.mean,binx)))
+c2=np.asarray(list(map(np.mean,biny)))
+c3=np.asarray(list(map(np.mean,binz)))
+
+c4=np.asarray(list(map(np.std,binx)))
+c5=np.asarray(list(map(np.std,biny)))
+c6=np.asarray(list(map(np.std,binz)))
 
 np.savetxt('ions-trajectory.dat',np.c_[c1,c2,c3,c4,c5,c6])
 
 # loop to verify if the passage happened through
-# the position ordered string 1,0,-1
+# the position ordered string -1,0,1
 # for up to down permeation events (is it our case?)
 
 pass_count = 0
-
-if labelist[0]==0 and labelist[1]==-1:
-    pass_count+=1
-
-if labelist[1]==0 and labelist[2]==-1:
-    pass_count+=1
 
 for i in range (2,len(labelist)):
 
@@ -198,4 +216,4 @@ for i in range (2,len(labelist)):
         pass_count+=1
 
 print (f'\n The {args.sel} ions have passed through the \
-        {args.ref} {pass_count} times')
+{args.ref} {pass_count} times')
