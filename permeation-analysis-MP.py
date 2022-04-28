@@ -52,6 +52,16 @@ def count_perm(labelist):
 
     return pass_count
 
+def collect_result(result):
+    global x
+    global y
+    global z
+    global pass_count
+    x.append(np.asarray(result[0]))
+    y.append(np.asarray(result[1]))
+    z.append(np.asarray(result[2]))
+    pass_count+=result[3]
+
 #error if less than 4 arguments are passed
 
 parser = argparse.ArgumentParser(description="Analysis \
@@ -88,13 +98,15 @@ parser.add_argument("-j", "--stride", dest = "stride", \
 parser.add_argument("-dx", "--width", dest = "width", \
         type=float, default=0.5, help = "bin width for the channel axis, default = 0.5 (Ang)")
 
-print('\n Main loop starting, good luck and wait',flush=True)
-
 args=parser.parse_args()
 
 u = mda.Universe(args.pdb, args.traj)
 sel_atoms = u.select_atoms(args.sel)
 
+# insert here a RMSD fit of the traj on the structure,
+# it should solve the alignment problem!!
+    
+# main function to be parallelized
 def mp_permeation(n,u,args):
     
     sel=args.sel
@@ -102,13 +114,10 @@ def mp_permeation(n,u,args):
     sel_atoms = u.select_atoms(args.sel)
     ref_atoms  = u.select_atoms(args.ref)
 
-    # insert here a RMSD fit of the traj on the structure,
-    # it should solve the alignment problem!!
-    
     z_up=np.amax(ref_atoms.positions[:,2])
     z_lw=np.amin(ref_atoms.positions[:,2])
     
-    # this is an huuuuge guess, I understand
+    # this below is an huge guess, I understand
     # the generalization issue but you have
     # to be smarter!!
     
@@ -193,19 +202,11 @@ y=[]
 z=[]
 pass_count=0
 
-def collect_result(result):
-    global x
-    global y
-    global z
-    global pass_count
-    x.append(np.asarray(result[0]))
-    y.append(np.asarray(result[1]))
-    z.append(np.asarray(result[2]))
-    pass_count+=result[3]
-
 for n in range(len(sel_atoms)):
     pool.apply_async(mp_permeation, args=(n,u,args),callback=collect_result)
-    print(f'Computed {n+1}/{len(sel_atoms)} possible combinations',flush=True)
+    
+print(f'All the {len(sel_atoms)} ions have been assigned to \
+{nproc} processors',flush=True)
 
 pool.close()
 pool.join()
