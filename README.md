@@ -19,4 +19,4 @@ It is also possible to select a part of the trajectory with the optional flags:
 1. -st start at n frame
 2. -et end at m frame 
 3. -j skip every k frames 
-
+Now it is also possible to align a trajectory to the reference structure with respect to ref with the **--align** flag
