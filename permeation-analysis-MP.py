@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 
+import os
 import argparse
 from time import perf_counter
 import numpy as np
 import MDAnalysis as mda
+from MDAnalysis.analysis import align
 import multiprocessing as mp
 from collections.abc import Iterable
 import warnings
 
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning) 
 
-
-def split(a, n):
-    k, m = divmod(len(a), n)
-    return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
 
 def binner(coords,tobinarray,bins=100):
 
@@ -98,13 +96,31 @@ parser.add_argument("-j", "--stride", dest = "stride", \
 parser.add_argument("-dx", "--width", dest = "width", \
         type=float, default=0.5, help = "bin width for the channel axis, default = 0.5 (Ang)")
 
+feature_parser = parser.add_mutually_exclusive_group(required=False)
+feature_parser.add_argument('--align', dest='toalign', action='store_true')
+feature_parser.add_argument('--no-align', dest='toalign', action='store_false')
+parser.set_defaults(toalign=False)
+
 args=parser.parse_args()
 
 u = mda.Universe(args.pdb, args.traj)
 sel_atoms = u.select_atoms(args.sel)
 
-# insert here a RMSD fit of the traj on the structure,
-# it should solve the alignment problem!!
+# trajectory alignment to assure the channel aligned,
+if args.toalign:
+
+    name=os.path.splitext(args.pdb)[0]+'-aligned.dcd'
+
+    print(f'The trajectory {args.traj} will be aligned to {args.pdb} and saved as {name}')
+
+    algn=mda.Universe(args.pdb)
+
+    alignment = align.AlignTraj(u, algn, filename=name, select=args.ref)
+
+    alignment.run()
+    
+    del u
+    u = mda.Universe(args.pdb, name)
     
 # main function to be parallelized
 def mp_permeation(n,u,args):
