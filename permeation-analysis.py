@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+import os
 import numpy as np
 import MDAnalysis as mda
+from MDAnalysis.analysis import align
 import argparse
 from collections.abc import Iterable
 import warnings
@@ -34,6 +36,21 @@ def binner(coords,tobinarray,bins=100):
 
     return binned, bins
 
+# function to verify if the passage happened through
+# the position ordered string 1,0,-1
+# for up to down permeation events (is it our case?)
+
+def count_perm(labelist):
+
+    pass_count = 0
+
+    for i in range (2,len(labelist)):
+
+        if ( labelist[i-2]==1 and labelist[i-1]==0 and labelist[i]==-1):
+
+            pass_count+=1
+
+    return pass_count
 
 #error if less than 4 arguments are passed
 
@@ -71,6 +88,11 @@ parser.add_argument("-j", "--stride", dest = "stride", \
 parser.add_argument("-dx", "--width", dest = "width", \
         type=float, default=0.5, help = "bin width for the channel axis, default = 0.5 (Ang)")
 
+feature_parser = parser.add_mutually_exclusive_group(required=False)
+feature_parser.add_argument('--align', dest='toalign', action='store_true')
+feature_parser.add_argument('--no-align', dest='toalign', action='store_false')
+parser.set_defaults(toalign=False)
+
 args = parser.parse_args()
 
 sel=args.sel
@@ -91,8 +113,21 @@ time=len(sel_atoms)*u.trajectory.n_frames/90
 
 print(f'\n Estimated time to finish is {time/60} minutes or {time/3600} hours')
 
-# insert here a RMSD fit of the traj on the structure,
-# it should solve the alignment problem!!
+# trajectory alignment if requested,
+if args.toalign:
+
+    name=os.path.splitext(args.pdb)[0]+'-aligned.dcd'
+
+    print(f'The trajectory {args.traj} will be aligned to {args.pdb} and saved as {name}')
+
+    algn=mda.Universe(args.pdb)
+
+    alignment = align.AlignTraj(u, algn, filename=name, select=args.ref)
+
+    alignment.run()
+    
+    del u
+    u = mda.Universe(args.pdb, name)
 
 z_up=np.amax(ref_atoms.positions[:,2])
 z_lw=np.amin(ref_atoms.positions[:,2])
@@ -122,7 +157,6 @@ vec = p2 - p1
 const = r * np.linalg.norm(vec)
 
 # declare an empty list to store the labels
-labelist = []
 x=[]
 y=[]
 z=[]
@@ -136,13 +170,15 @@ z=[]
 
 old_step = 2
 
-# here we assume the traj centered (user selection frozen)
-# again above do the RMSD fit!!
+pass_count = 0
 
 print('\n Main loop starting, good luck and wait',flush=True)
 
 for n in range (len(sel_atoms)):
+
+    labelist = []
     labelist.append(1)
+
     for frm in u.trajectory[args.startt:args.endt:args.stride]:
 
         z_sel = sel_atoms.positions[n,2]
@@ -178,12 +214,8 @@ for n in range (len(sel_atoms)):
             old_step = -1
 
 
-# append an out of range value to separate different atoms passages
+    pass_count+=count_perm(labelist)
 
-    labelist.append(2)
-
-
-labelist = np.array(labelist)
 
 x=np.array(x)
 y=np.array(y)
@@ -206,18 +238,6 @@ c5=np.asarray(list(map(np.std,biny)))
 c6=np.asarray(list(map(np.std,binz)))
 
 np.savetxt('ions-trajectory.dat',np.c_[c1,c2,c3,c4,c5,c6])
-
-# loop to verify if the passage happened through
-# the position ordered string -1,0,1
-# for up to down permeation events (is it our case?)
-
-pass_count = 0
-
-for i in range (2,len(labelist)):
-
-    if ( labelist[i-2]==1 and labelist[i-1]==0 and labelist[i]==-1):
-
-        pass_count+=1
 
 print (f'\n The {args.sel} ions have passed through the \
 {args.ref} {pass_count} times')
