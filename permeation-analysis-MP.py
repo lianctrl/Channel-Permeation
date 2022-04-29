@@ -81,14 +81,18 @@ parser.add_argument("-ref", "--reference", dest = "ref", \
         be guessed the first and last atoms of the reference \
         channel (e.g. protein and backbone)")
 
+parser.add_argument("-com", "--center", dest = "com", \
+        required = True, help ="<Required> From this selection will \
+        be guessed the center of the channel (e.g. resid 100-200)")
+
 parser.add_argument("-r", "--radius", dest = "radius", \
         type=float, default=5.0, help = "estimate of channel radius, default = 5.0 (Ang)")
 
 parser.add_argument("-st", "--starttime", dest = "startt",\
-        type=float, default=0, help = "time starting (ns), default = 0")
+        type=float, default=0, help = "time starting (frames), default = 0")
 
 parser.add_argument("-et", "--endtime", dest = "endt", \
-        type=float, default=-1, help = "time ending (ns), default = last frame")
+        type=float, default=-1, help = "time ending (frames), default = last frame")
 
 parser.add_argument("-j", "--stride", dest = "stride", \
         type=int, default=1, help = "stride, default = 1")
@@ -128,19 +132,19 @@ def mp_permeation(n,u,args):
     sel=args.sel
     ref = args.ref
     sel_atoms = u.select_atoms(args.sel)
-    ref_atoms  = u.select_atoms(args.ref)
-
-    z_up=np.amax(ref_atoms.positions[:,2])
-    z_lw=np.amin(ref_atoms.positions[:,2])
+    ref_atoms = u.select_atoms(args.ref)
+    com_atoms = u.select_atoms(args.com)
+    z_up=np.amax(ref_atoms.positions[:,2])-4
+    z_lw=np.amin(ref_atoms.positions[:,2])+4
     
     # this below is an huge guess, I understand
     # the generalization issue but you have
     # to be smarter!!
     
-    lim_up = [ref_atoms.center_of_mass()[0],\
-            ref_atoms.center_of_mass()[1],z_up]
-    lim_lw = [ref_atoms.center_of_mass()[0],\
-            ref_atoms.center_of_mass()[1],z_lw]
+    lim_up = [com_atoms.centroid()[0],\
+            com_atoms.centroid()[1],z_up]
+    lim_lw = [com_atoms.centroid()[0],\
+            com_atoms.centroid()[1],z_lw]
     
     
     #vector used down below in order to follow the numerical approach of
@@ -251,7 +255,9 @@ c4=np.asarray(list(map(np.std,binx)))
 c5=np.asarray(list(map(np.std,biny)))
 c6=np.asarray(list(map(np.std,binz)))
 
-np.savetxt('ions-traj-MP.dat',np.c_[c1,c2,c3,c4,c5,c6])
+c7=(centers[1:]+centers[:-1])/2
+
+np.savetxt('ions-traj-MP.dat',np.c_[c1,c2,c7,c4,c5,c6])
 
 print (f'\n The {args.sel} ions have passed through the \
 {args.ref} {np.sum(pass_count)} times')
