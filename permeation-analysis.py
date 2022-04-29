@@ -73,6 +73,10 @@ parser.add_argument("-ref", "--reference", dest = "ref", \
         be guessed the first and last atoms of the reference \
         channel (e.g. protein and backbone)")
 
+parser.add_argument("-com", "--center", dest = "com", \
+        required = True, help ="<Required> From this selection will \
+        be guessed the center of the channel (e.g. resid 100-200)")
+
 parser.add_argument("-r", "--radius", dest = "radius", \
         type=float, default=5.0, help = "estimate of channel radius, default = 5.0 (Ang)")
 
@@ -102,7 +106,9 @@ u = mda.Universe(args.pdb, args.traj)
 
 sel_atoms = u.select_atoms(args.sel)
 
-ref_atoms  = u.select_atoms(args.ref)
+ref_atoms = u.select_atoms(args.ref)
+
+com_atoms = u.select_atoms(args.com)
 
 print(f'\n The selection provided is of {len(sel_atoms)} ions \
 and the trajectory contains {u.trajectory.n_frames} frames')
@@ -136,10 +142,10 @@ z_lw=np.amin(ref_atoms.positions[:,2])
 # the generalization issue but you have
 # to be smarter!!
 
-lim_up = [ref_atoms.center_of_mass()[0],\
-        ref_atoms.center_of_mass()[1],z_up]
-lim_lw = [ref_atoms.center_of_mass()[0],\
-        ref_atoms.center_of_mass()[1],z_lw]
+lim_up = [com_atoms.centroid()[0],\
+        com_atoms.centroid()[1],z_up]
+lim_lw = [com_atoms.centroid()[0],\
+        com_atoms.centroid()[1],z_lw]
 
 
 #vector used down below in order to follow the numerical approach of
@@ -237,7 +243,9 @@ c4=np.asarray(list(map(np.std,binx)))
 c5=np.asarray(list(map(np.std,biny)))
 c6=np.asarray(list(map(np.std,binz)))
 
-np.savetxt('ions-trajectory.dat',np.c_[c1,c2,c3,c4,c5,c6])
+c7=(centers[1:]+centers[:-1])/2
+
+np.savetxt('ions-trajectory.dat',np.c_[c1,c2,c7,c4,c5,c6])
 
 print (f'\n The {args.sel} ions have passed through the \
 {args.ref} {pass_count} times')
